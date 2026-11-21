@@ -69,6 +69,10 @@ function isPast(day, time) {
   return Date.now() > t.getTime();
 }
 
+// 確認役のメモの項目名(英語)を日本語にする
+const WHERE = [["last.items", "最後のページの項目"], ["last.talk", "お客様への伝え方"], ["last.title", "最後のページの見出し"], ["last", "最後のページ"], ["points.items", "要点"], ["points", "要点"], ["stat.value", "大きな数字"], ["stat.unit", "大きな数字の単位"], ["stat.label", "大きな数字の説明"], ["stat.note", "大きな数字の注"], ["stat", "大きな数字"], ["headline", "見出し"], ["lead", "リード文"], ["caption", "キャプション"], ["digest", "お昼のひとこと"], ["tags", "ハッシュタグ"], ["cat", "分類"]];
+const jaWhere = (w) => WHERE.reduce((t, [en, ja]) => t.split(en).join(ja), String(w ?? ""));
+
 function render() {
   if (!plans.length) { app.innerHTML = '<p class="msg">まだ案がありません。毎晩20時ごろに届きます。</p>'; return; }
   app.innerHTML = plans.map((p, pi) => {
@@ -78,7 +82,7 @@ function render() {
       const st = p.status[g.key];
       const past = isPast(p.day, g.time);
       const imgs = (g.images || []).map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" loading="lazy" alt="投稿の画像"></a>`).join("");
-      const notes = (g.notes || []).length ? `<div class="notes">📝 確認役のAIからのメモ(誤りではないが、気になる点)<ul>${g.notes.map((n) => `<li>${esc(n.where)}:${esc(n.issue)}</li>`).join("")}</ul></div>` : "";
+      const notes = (g.notes || []).length ? `<div class="notes">📝 確認役のAIからのメモ(誤りではないが、気になる点)<ul>${g.notes.map((n) => `<li>${esc(jaWhere(n.where))}:${esc(n.issue)}</li>`).join("")}</ul></div>` : "";
       return `<div class="card ${st === "出す" ? "ok" : ""}">
         <div class="time">${esc(g.time)}</div>
         <div class="label">${esc(g.label)}</div>
