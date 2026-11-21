@@ -127,7 +127,10 @@ async function setAll(pi, ok) {
   } catch (e) { render(); showErr(e); }
 }
 
-call("getPlans", V).then((r) => { plans = r; render(); })
+// 並び順:これから出る日を近い順に、そのあとに過ぎた日を新しい順に
+const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+const order = (r) => [...r.filter((p) => p.day >= today).sort((a, b) => (a.day < b.day ? -1 : 1)), ...r.filter((p) => p.day < today)];
+call("getPlans", V).then((r) => { plans = order(r); render(); })
   .catch((e) => { app.innerHTML = `<div class="err">読み込めませんでした。ホーム画面のアイコンから開き直してください。(${esc(e && e.message ? e.message : e)})</div>`; });
 </script>
 </body>
