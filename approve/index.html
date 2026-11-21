@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base target="_top">
+<title>投稿の承認</title>
+<style>
+  :root { --navy:#1f3a5f; --ok:#1e7d4f; --no:#9a3b3b; --line:#e3e6ea; --sub:#667085; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: "Hiragino Sans","Noto Sans JP",system-ui,sans-serif; background:#f5f6f8; color:#222; font-size:15px; line-height:1.6; }
+  header { background:var(--navy); color:#fff; padding:14px 16px; font-weight:bold; font-size:17px; position:sticky; top:0; z-index:5; }
+  main { padding:12px; max-width:640px; margin:0 auto; }
+  .day { margin:8px 0 20px; }
+  .day h2 { font-size:18px; margin:8px 4px; }
+  .summary { font-size:13px; color:var(--sub); margin:0 4px 10px; }
+  .bulk { display:flex; gap:8px; margin:0 4px 12px; }
+  .bulk button { flex:1; padding:10px; border-radius:10px; border:1px solid var(--navy); background:#fff; color:var(--navy); font-size:14px; font-weight:bold; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:14px; }
+  .card.ok { border:2px solid var(--ok); }
+  .time { font-weight:bold; font-size:16px; }
+  .label { font-size:14px; color:#333; }
+  .imgs { display:flex; gap:8px; overflow-x:auto; margin:10px -4px; padding:0 4px 4px; }
+  .imgs img { height:180px; border-radius:8px; border:1px solid var(--line); flex:none; }
+  a { color:var(--navy); }
+  details { margin:6px 0; }
+  summary { cursor:pointer; color:var(--navy); font-size:14px; }
+  pre { white-space:pre-wrap; font-family:inherit; font-size:13px; background:#f7f8fa; padding:10px; border-radius:8px; margin:6px 0 0; }
+  .notes { background:#fff8e6; border-radius:8px; padding:8px 10px; font-size:13px; margin:8px 0; }
+  .notes ul { margin:4px 0 0; padding-left:18px; }
+  .src { font-size:12px; color:var(--sub); word-break:break-all; }
+  .btns { display:flex; gap:10px; margin-top:12px; }
+  .btns button { flex:1; padding:14px 8px; font-size:16px; font-weight:bold; border-radius:12px; border:2px solid #ccc; background:#fff; color:#555; }
+  .btns button.yes.on { background:var(--ok); border-color:var(--ok); color:#fff; }
+  .btns button.no.on { background:#fff; border-color:var(--no); color:var(--no); }
+  .btns button:disabled { opacity:.5; }
+  .state { font-size:13px; margin-top:8px; color:var(--sub); }
+  .state.ok { color:var(--ok); font-weight:bold; }
+  .past { font-size:13px; color:var(--no); margin-top:8px; }
+  .msg { padding:24px 8px; color:var(--sub); text-align:center; }
+  .err { background:#fdecec; color:#8a1f1f; padding:10px 12px; border-radius:8px; margin:8px 0; font-size:14px; }
+</style>
+</head>
+<body>
+<header>投稿の承認</header>
+<main id="app"><p class="msg">読み込んでいます…</p></main>
+<script>
+// ページを開く鍵:Google から開いたときは埋め込み、GitHub の公開の場所から開いたときはアドレスの # のあと
+const V = "__V__".startsWith("__") ? (new URLSearchParams(location.hash.slice(1)).get("v") || "") : "__V__";
+const APP_URL = "https://script.google.com/macros/s/AKfycbzLjLr44SDUKd1VfJ0MvNB0p4wMAnfTIGRxzGMZwn4MxG-0mjqBHwblI3ijoplCIsSh/exec";
+const app = document.getElementById("app");
+let plans = [];
+
+// サーバー(Google)の関数を呼ぶ
+function call(fn, ...args) {
+  if (window.google && google.script) return new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn](...args));
+  // GitHub の公開の場所から開いたとき:Google のアカウントのログイン状態に関係なく動くよう、ログイン情報を送らずに呼ぶ
+  const body = fn === "getPlans" ? { action: "getPlans", v: args[0] } : { action: "setStatus", v: args[0], day: args[1], gkey: args[2], ok: args[3] };
+  return fetch(APP_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body), credentials: "omit" })
+    .then((r) => r.json())
+    .then((j) => { if (!j.ok) throw new Error(j.error || "失敗しました"); return fn === "getPlans" ? j.plans : j.status; });
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// 予定の時刻を過ぎたか(日本時間)
+function isPast(day, time) {
+  const [h, m] = time.split(":").map(Number);
+  const t = new Date(day + "T" + String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0") + ":00+09:00");
+  return Date.now() > t.getTime();
+}
+
+function render() {
+  if (!plans.length) { app.innerHTML = '<p class="msg">まだ案がありません。毎晩20時ごろに届きます。</p>'; return; }
+  app.innerHTML = plans.map((p, pi) => {
+    const main = p.groups.filter((g) => !/-d$/.test(g.key));
+    const okN = main.filter((g) => p.status[g.key] === "出す").length;
+    const cards = p.groups.map((g, gi) => {
+      const st = p.status[g.key];
+      const past = isPast(p.day, g.time);
+      const imgs = (g.images || []).map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" loading="lazy" alt="投稿の画像"></a>`).join("");
+      const notes = (g.notes || []).length ? `<div class="notes">📝 確認役のAIからのメモ(誤りではないが、気になる点)<ul>${g.notes.map((n) => `<li>${esc(n.where)}:${esc(n.issue)}</li>`).join("")}</ul></div>` : "";
+      return `<div class="card ${st === "出す" ? "ok" : ""}">
+        <div class="time">${esc(g.time)}</div>
+        <div class="label">${esc(g.label)}</div>
+        <div class="imgs">${imgs}</div>
+        ${g.video ? `<div>🎬 <a href="${esc(g.video)}" target="_blank">リール動画を見る</a></div>` : ""}
+        ${g.caption ? `<details><summary>キャプションを読む</summary><pre>${esc(g.caption)}</pre></details>` : ""}
+        ${notes}
+        ${g.source ? `<div class="src">🔗 元の発表:<a href="${esc(g.source)}" target="_blank">${esc(g.source)}</a></div>` : ""}
+        <div class="btns">
+          <button class="yes ${st === "出す" ? "on" : ""}" ${past ? "disabled" : ""} onclick="set(${pi},${gi},true)">出す</button>
+          <button class="no ${st === "出さない" ? "on" : ""}" ${past ? "disabled" : ""} onclick="set(${pi},${gi},false)">出さない</button>
+        </div>
+        ${past ? `<div class="past">予定の時刻を過ぎたため、変えられません(${st === "出す" ? "出す" : "出さない"}で確定)</div>`
+               : `<div class="state ${st === "出す" ? "ok" : ""}">${st === "出す" ? "✓ 出します" : "まだ「出す」が押されていないので、出ません"}</div>`}
+      </div>`;
+    }).join("");
+    const allPast = p.groups.every((g) => isPast(p.day, g.time));
+    return `<section class="day">
+      <h2>${esc(p.dayJa)} の投稿</h2>
+      <p class="summary">「出す」を押した投稿だけが、予定の時刻に出ます。いま ${main.length}件中 ${okN}件 が「出す」です。お昼のまとめは、上の投稿がすべて「出す」のときだけ出ます。</p>
+      ${allPast ? "" : `<div class="bulk"><button onclick="setAll(${pi},true)">すべて出す</button><button onclick="setAll(${pi},false)">すべて出さない</button></div>`}
+      ${cards}
+    </section>`;
+  }).join("");
+}
+
+function showErr(e) {
+  const d = document.createElement("div");
+  d.className = "err";
+  d.textContent = "記録できませんでした。電波のよいところで、もう一度押してください。(" + (e && e.message ? e.message : e) + ")";
+  app.prepend(d);
+  setTimeout(() => d.remove(), 8000);
+}
+
+async function set(pi, gi, ok) {
+  const p = plans[pi], g = p.groups[gi];
+  try { p.status[g.key] = await call("setStatus", V, p.day, g.key, ok); render(); }
+  catch (e) { showErr(e); }
+}
+
+async function setAll(pi, ok) {
+  const p = plans[pi];
+  try {
+    for (const g of p.groups) if (!isPast(p.day, g.time)) p.status[g.key] = await call("setStatus", V, p.day, g.key, ok);
+    render();
+  } catch (e) { render(); showErr(e); }
+}
+
+call("getPlans", V).then((r) => { plans = r; render(); })
+  .catch((e) => { app.innerHTML = `<div class="err">読み込めませんでした。ホーム画面のアイコンから開き直してください。(${esc(e && e.message ? e.message : e)})</div>`; });
+</script>
+</body>
+</html>
