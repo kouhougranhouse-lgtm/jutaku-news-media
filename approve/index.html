@@ -73,40 +73,69 @@ function isPast(day, time) {
 const WHERE = [["last.items", "最後のページの項目"], ["last.talk", "お客様への伝え方"], ["last.title", "最後のページの見出し"], ["last", "最後のページ"], ["points.items", "要点"], ["points", "要点"], ["stat.value", "大きな数字"], ["stat.unit", "大きな数字の単位"], ["stat.label", "大きな数字の説明"], ["stat.note", "大きな数字の注"], ["stat", "大きな数字"], ["headline", "見出し"], ["lead", "リード文"], ["caption", "キャプション"], ["digest", "お昼のひとこと"], ["tags", "ハッシュタグ"], ["cat", "分類"]];
 const jaWhere = (w) => WHERE.reduce((t, [en, ja]) => t.split(en).join(ja), String(w ?? ""));
 
+// 記録している途中の投稿(押した瞬間に画面を変え、返事を待つ間は「記録しています…」と出す)
+const saving = {};
+
+function cardHtml(pi, gi) {
+  const p = plans[pi], g = p.groups[gi];
+  const st = p.status[g.key];
+  const busy = saving[p.day + "|" + g.key];
+  const past = isPast(p.day, g.time);
+  const imgs = (g.images || []).map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" loading="lazy" alt="投稿の画像"></a>`).join("");
+  const notes = (g.notes || []).length ? `<div class="notes">📝 確認役のAIからのメモ(誤りではないが、気になる点)<ul>${g.notes.map((n) => `<li>${esc(jaWhere(n.where))}:${esc(n.issue)}</li>`).join("")}</ul></div>` : "";
+  const stateText = busy ? "記録しています…" : st === "出す" ? "✓ 出します" : "まだ「出す」が押されていないので、出ません";
+  return `<div class="card ${st === "出す" ? "ok" : ""}" id="c-${pi}-${gi}">
+    <div class="time">${esc(g.time)}</div>
+    <div class="label">${esc(g.label)}</div>
+    <div class="imgs">${imgs}</div>
+    ${g.video ? `<div>🎬 <a href="${esc(g.video)}" target="_blank">リール動画を見る</a></div>` : ""}
+    ${g.caption ? `<details><summary>キャプションを読む</summary><pre>${esc(g.caption)}</pre></details>` : ""}
+    ${notes}
+    ${g.source ? `<div class="src">🔗 元の発表:<a href="${esc(g.source)}" target="_blank">${esc(g.source)}</a></div>` : ""}
+    <div class="btns">
+      <button class="yes ${st === "出す" ? "on" : ""}" ${past ? "disabled" : ""} onclick="set(${pi},${gi},true)">出す</button>
+      <button class="no ${st === "出さない" ? "on" : ""}" ${past ? "disabled" : ""} onclick="set(${pi},${gi},false)">出さない</button>
+    </div>
+    ${past ? `<div class="past">予定の時刻を過ぎたため、変えられません(${st === "出す" ? "出す" : "出さない"}で確定)</div>`
+           : `<div class="state ${st === "出す" && !busy ? "ok" : ""}">${stateText}</div>`}
+  </div>`;
+}
+
+function summaryText(pi) {
+  const p = plans[pi];
+  const main = p.groups.filter((g) => !/-d$/.test(g.key));
+  const okN = main.filter((g) => p.status[g.key] === "出す").length;
+  return `「出す」を押した投稿だけが、予定の時刻に出ます。いま ${main.length}件中 ${okN}件 が「出す」です。お昼のまとめは、上の投稿がすべて「出す」のときだけ出ます。`;
+}
+
 function render() {
   if (!plans.length) { app.innerHTML = '<p class="msg">まだ案がありません。毎晩20時ごろに届きます。</p>'; return; }
   app.innerHTML = plans.map((p, pi) => {
-    const main = p.groups.filter((g) => !/-d$/.test(g.key));
-    const okN = main.filter((g) => p.status[g.key] === "出す").length;
-    const cards = p.groups.map((g, gi) => {
-      const st = p.status[g.key];
-      const past = isPast(p.day, g.time);
-      const imgs = (g.images || []).map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" loading="lazy" alt="投稿の画像"></a>`).join("");
-      const notes = (g.notes || []).length ? `<div class="notes">📝 確認役のAIからのメモ(誤りではないが、気になる点)<ul>${g.notes.map((n) => `<li>${esc(jaWhere(n.where))}:${esc(n.issue)}</li>`).join("")}</ul></div>` : "";
-      return `<div class="card ${st === "出す" ? "ok" : ""}">
-        <div class="time">${esc(g.time)}</div>
-        <div class="label">${esc(g.label)}</div>
-        <div class="imgs">${imgs}</div>
-        ${g.video ? `<div>🎬 <a href="${esc(g.video)}" target="_blank">リール動画を見る</a></div>` : ""}
-        ${g.caption ? `<details><summary>キャプションを読む</summary><pre>${esc(g.caption)}</pre></details>` : ""}
-        ${notes}
-        ${g.source ? `<div class="src">🔗 元の発表:<a href="${esc(g.source)}" target="_blank">${esc(g.source)}</a></div>` : ""}
-        <div class="btns">
-          <button class="yes ${st === "出す" ? "on" : ""}" ${past ? "disabled" : ""} onclick="set(${pi},${gi},true)">出す</button>
-          <button class="no ${st === "出さない" ? "on" : ""}" ${past ? "disabled" : ""} onclick="set(${pi},${gi},false)">出さない</button>
-        </div>
-        ${past ? `<div class="past">予定の時刻を過ぎたため、変えられません(${st === "出す" ? "出す" : "出さない"}で確定)</div>`
-               : `<div class="state ${st === "出す" ? "ok" : ""}">${st === "出す" ? "✓ 出します" : "まだ「出す」が押されていないので、出ません"}</div>`}
-      </div>`;
-    }).join("");
     const allPast = p.groups.every((g) => isPast(p.day, g.time));
     return `<section class="day">
       <h2>${esc(p.dayJa)} の投稿</h2>
-      <p class="summary">「出す」を押した投稿だけが、予定の時刻に出ます。いま ${main.length}件中 ${okN}件 が「出す」です。お昼のまとめは、上の投稿がすべて「出す」のときだけ出ます。</p>
+      <p class="summary" id="s-${pi}">${summaryText(pi)}</p>
       ${allPast ? "" : `<div class="bulk"><button onclick="setAll(${pi},true)">すべて出す</button><button onclick="setAll(${pi},false)">すべて出さない</button></div>`}
-      ${cards}
+      ${p.groups.map((g, gi) => cardHtml(pi, gi)).join("")}
     </section>`;
   }).join("");
+}
+
+// 1枚のカードだけを描き直す(開いているキャプションや、画像の読み込みはそのまま)
+function refresh(pi, gi) {
+  const el = document.getElementById(`c-${pi}-${gi}`);
+  if (el) {
+    const open = el.querySelector("details")?.open;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = cardHtml(pi, gi);
+    const card = tmp.firstElementChild;
+    // 画像や動画のところは作り直さず、ボタンと状態の表示だけを入れ替える
+    for (const sel of [".btns", ".state", ".past"]) { const a = el.querySelector(sel), b = card.querySelector(sel); if (a && b) a.replaceWith(b); }
+    el.className = card.className;
+    if (open !== undefined) el.querySelector("details").open = open;
+  }
+  const s = document.getElementById(`s-${pi}`);
+  if (s) s.textContent = summaryText(pi);
 }
 
 function showErr(e) {
@@ -114,21 +143,37 @@ function showErr(e) {
   d.className = "err";
   d.textContent = "記録できませんでした。電波のよいところで、もう一度押してください。(" + (e && e.message ? e.message : e) + ")";
   app.prepend(d);
+  window.scrollTo({ top: 0, behavior: "smooth" });
   setTimeout(() => d.remove(), 8000);
 }
 
-async function set(pi, gi, ok) {
+// 押した瞬間に画面を変えて、裏で記録する。記録できなかったときだけ元に戻す
+async function save(pi, gi, ok) {
   const p = plans[pi], g = p.groups[gi];
-  try { p.status[g.key] = await call("setStatus", V, p.day, g.key, ok); render(); }
-  catch (e) { showErr(e); }
+  const k = p.day + "|" + g.key;
+  const before = p.status[g.key];
+  const id = (saving[k] || 0) + 1;
+  saving[k] = id;
+  p.status[g.key] = ok ? "出す" : "出さない";
+  refresh(pi, gi);
+  try {
+    const got = await call("setStatus", V, p.day, g.key, ok);
+    if (saving[k] === id) { p.status[g.key] = got; delete saving[k]; refresh(pi, gi); }
+  } catch (e) {
+    if (saving[k] === id) { p.status[g.key] = before; delete saving[k]; refresh(pi, gi); }
+    throw e;
+  }
 }
 
+function set(pi, gi, ok) { save(pi, gi, ok).catch(showErr); }
+
+// すべて:1件ずつ待たずに、同時に送る
 async function setAll(pi, ok) {
   const p = plans[pi];
-  try {
-    for (const g of p.groups) if (!isPast(p.day, g.time)) p.status[g.key] = await call("setStatus", V, p.day, g.key, ok);
-    render();
-  } catch (e) { render(); showErr(e); }
+  const jobs = p.groups.map((g, gi) => isPast(p.day, g.time) ? null : save(pi, gi, ok)).filter(Boolean);
+  const res = await Promise.allSettled(jobs);
+  const bad = res.find((r) => r.status === "rejected");
+  if (bad) showErr(bad.reason);
 }
 
 // 並び順:これから出る日を近い順に、そのあとに過ぎた日を新しい順に
